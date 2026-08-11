@@ -11,11 +11,24 @@ requires-python = ">=3.11,<3.14"
 license = "MIT"
 dependencies = [
   "numpy>=1.26,<2",
-  "onnxruntime>=1.20,<2",
   "pillow>=10,<13",
 ]
 
 [project.optional-dependencies]
+runtime-cpu = [
+  "onnxruntime>=1.20,<2",
+]
+runtime-gpu = [
+  "onnxruntime-gpu==1.16.3",
+  "nvidia-cuda-runtime-cu11>=11.8,<12",
+  "nvidia-cufft-cu11>=10.9,<11",
+  "nvidia-cudnn-cu11>=8.9,<9",
+]
+notebook = [
+  "ipykernel>=6.29,<7",
+  "jupyterlab>=4.2,<5",
+  "matplotlib>=3.8,<4",
+]
 dev = [
   "pytest>=8.3,<9",
   "ruff>=0.12,<1",
@@ -35,3 +48,10 @@ addopts = "-q"
 line-length = 110
 target-version = "py311"
 
+[tool.uv]
+conflicts = [
+  [
+    { extra = "runtime-cpu" },
+    { extra = "runtime-gpu" },
+  ],
+]

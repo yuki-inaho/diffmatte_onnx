@@ -1,85 +1,90 @@
 # LLMオンボーディングサマリー
 
-> 新任LLMエージェント向けの初期資料。記載内容は 2026-08-11 時点のローカル実装・実行結果に基づく。
+> 新任 LLM エージェント向けの初期資料。記載内容は 2026-08-11 時点のローカル実装、GTX 1070 実機実行、GitHub release 構成に基づく。
 
 ## 1. プロジェクト概要と目的
 
-- **プロジェクト名称・領域:** `diffmatte_onnx`。DiffMatte の ONNX Runtime 推論専用リポジトリ。
-- **最終成果物:** PyTorch / Detectron2 を必要としない `diffmatte-infer-onnx` CLI、固定形状 ONNX モデル、公式デモ入力、検証記録。
-- **ビジネス背景・価値:** 学習済み画像 matting モデルを軽量な本番推論環境へ分離する。
-- **現時点の進捗サマリ:** CPU ONNX Runtime で公式 retriever サンプルを推論済み。PyTorch 参照との全画素比較も合格。
+- **プロジェクト名称・領域:** `diffmatte_onnx`。DiffMatte の事前学習済み ViTS_1024 を ONNX Runtime で推論する専用リポジトリ。
+- **最終成果物:** PyTorch / Detectron2 を必要としない `diffmatte-infer-onnx` CLI、CPU 用と GTX 1070 GPU 用の ONNX 配布物、公式 retriever デモ、再現可能な可視化 notebook。
+- **ビジネス背景・価値:** 学習・export 系を [`../DiffMatte`](https://github.com/yuki-inaho/DiffMatte/tree/gtx1070) に分離したまま、軽量な実行環境だけを提供する。
+- **現時点の進捗サマリ:** CPU は PyTorch 参照と全画素比較済み。GTX 1070 では ONNX Runtime GPU の `CUDAExecutionProvider` を明示的に使い、公式 retriever サンプルの alpha と合成画像を生成済み。
 
 ## 2. クリティカルな要求・制約
 
-- 生成済みモデルの契約は `image=[1,3,643,960]`、`trimap=[1,1,643,960]`、`initial_noise=[1,1,643,960]`、`alpha=[1,1,643,960]`、すべて float32。batch/H/W は固定。
-- image は RGB `[0,1]`。trimap は upstream と同じ閾値で `{0, 0.5, 1}` に量子化する。
-- 再現比較では seed または `initial_noise.npy` を固定する。ノイズが異なる出力同士を数値比較しない。
-- デフォルトは upstream 数値互換を優先し、既知 foreground の強制 clamp はしない。必要時のみ `--enforce-known-trimap` を使う。
-- `models/*.onnx` は約119 MBで Git ignore 対象。JSON report は追跡対象で、ONNX 本体の存在・hash を別途確認する。
-- 確認済み provider は `CPUExecutionProvider`。CUDA provider は未検証。
+- モデル契約は `image=[1,3,643,960]`、`trimap=[1,1,643,960]`、`initial_noise=[1,1,643,960]`、`alpha=[1,1,643,960]` の float32 固定形状。batch/H/W を動的入力として扱わない。
+- image は RGB `[0,1]`、trimap は upstream と同じ閾値で `{0, 0.5, 1}` に量子化する。再現比較では seed または `initial_noise.npy` を固定する。
+- CPU 用元モデルは IR v10、GTX 1070 用モデルは IR v9。両者は opset 18 と演算グラフを保ち、互換版は ONNX IR version フィールドだけを変更したもの。
+- GPU 確認済み組合せは GTX 1070 (Pascal / sm_61)、`onnxruntime-gpu==1.16.3`、CUDA 11.8、cuDNN 8。`runtime-gpu` extra 以外の ORT/CUDA 組合せは**未検証**。
+- `--provider cuda` は CUDAExecutionProvider が有効にならなければエラーにする。CPU への黙ったフォールバックを成功と扱わない。CUDA 指定時は ORT 1.16 の FusedConv 問題を避けるためグラフ最適化を無効化する。
+- `models/*.onnx`（各約 119 MB）は Git ignore。実体は GitHub Release から取得し、同梱または追跡された `.onnx.json` の SHA-256 と照合する。manifest だけで完了とせず、モデル本体・入力ペア・推論結果を確認する。
 
 ## 3. 参照すべき合意済み資料
 
 | 種別 | ファイル/リンク | 概要・用途 |
 |------|------------------|------------|
-| 要求定義書 | `README.md` | セットアップ、推論 CLI、固定形状制約 |
-| 要件定義書 | `../DiffMatte/docs/ONBOARDING.md` | checkpoint からの export と PyTorch 比較 |
-| WBS / 進捗 | 未確認 | 専用 WBS はない。現状は本書の完了ゲートを使う |
-| テスト資産 | `tests/test_runtime.py` | 前処理、ノイズ再現性、provider エラーの単体テスト |
-| 検証記録 | `reports/retriever_cpu_comparison.json` | 実画像 PyTorch/ORT 誤差、hash、PNG 一致 |
-| 生成記録 | `models/diffmatte_vits_1024_ddim10_643x960.onnx.json` | config、shape、step、export 検証誤差 |
-| 既知課題リスト | 本書「制約」 | CUDA 未検証、モデル固定形状、モデル本体は未追跡 |
+| 要求定義書 | `README.md` | CPU/GPU セットアップ、モデルの選択、CLI、可視化出力 |
+| 要件定義書 | `../DiffMatte/docs/ONBOARDING.md` | checkpoint からの export、PyTorch 参照比較、GPU branch の境界 |
+| WBS / 進捗 | `docs/ONBOARDING.md` の「完了ゲート」 | 専用 WBS は未確認。本書の実測済みゲートを使う |
+| テスト資産 | `tests/test_runtime.py` | 前処理、ノイズ再現性、provider 選択の単体テスト |
+| GPU 実行資産 | `notebooks/onnxruntime_gpu_retriever_visualization.ipynb` | 公式 retriever を CUDAExecutionProvider で実行し alpha / 合成を可視化 |
+| GPU 実行記録 | `reports/retriever_gpu_gtx1070.json` | GPU / ORT / CUDA 構成、モデル hash、provider、CPU との PNG 比較 |
+| 配布 manifest | `models/*.onnx.json` | SHA-256、IR/opset、固定 shape、検証ランタイム |
+| 実画像比較 | `reports/retriever_cpu_comparison.json` | PyTorch vs CPU ORT の誤差、input hash、PNG 一致 |
+| 可視化成果物 | `docs/assets/retriever_gpu_visualization.png` | 追跡済みの GTX 1070 推論プレビュー。再生成物は `artifacts/notebooks/` |
 
 ## 4. タスク境界（任せること / 任せないこと）
 
 ### 任せるタスク（例）
 
-- ONNX Runtime 前処理・入力検証・provider 選択の改善。
-- 同じモデル契約を使う CLI/API テストの追加。
-- 新しい固定 H/W モデルの配置と、hash/report 更新。
+- ONNX Runtime 前処理・入力検証・provider 選択、および固定形状モデルの CLI/API テストを改善する。
+- 対象 GPU 向けの互換モデルを追加し、Release、SHA-256 manifest、実画像 report、可視化を同時に更新する。
+- `notebooks/` の GPU notebook を再実行し、`CUDAExecutionProvider` 表示、alpha PNG、合成 PNG を確認する。
 
 ### 任せないタスク（例）
 
 - このリポジトリへ PyTorch、Detectron2、学習コードを持ち込む変更。
-- checkpoint と異なるノイズによる出力差を「変換誤差」と判断すること。
-- 未検証 CUDA 実行や別解像度を確認済みとして記載すること。
-- `../DiffMatte` や `../diffmatte_sandbox` の既存ユーザー変更を削除すること。
+- `cu128` ブランチや隣接リポジトリの既存ユーザー変更を、本リポジトリの作業として変更・削除すること。
+- CUDA provider が初期化されていない実行、別 GPU / 別解像度 / 別 ORT 世代を「確認済み」と記載すること。
+- checkpoint と異なる初期ノイズの出力差を変換誤差と判断すること。
 
 ## 5. インタラクション方針
 
-- **回答スタイル:** 日本語、結果を先に述べ、コマンド・shape・hash・誤差を具体的に示す。
-- **回答手順:** 入出力契約確認 → 再現条件確認 → 実行 → report/画像/hash 確認。
-- **禁止事項・注意:** ONNX ファイルの存在だけで完了としない。checker、実推論、参照比較を区別する。
-- **秘匿情報の扱い:** checkpoint やローカルパスを外部送信しない。認証情報を文書へ記載しない。
+- **回答スタイル:** 日本語で結果を先に示し、モデル名、provider、shape、seed、SHA-256、誤差を具体的に記載する。
+- **回答手順:** 配布物 hash 照合 → input/trimap pairing と shape 確認 → 実行 provider 確認 → alpha/合成と report 確認。
+- **禁止事項・注意:** `CUDAExecutionProvider` が active providers に含まれない結果を GPU 成功と報告しない。未検証の依存バージョンや性能値を断定しない。
+- **秘匿情報の扱い:** checkpoint のローカル絶対パス、認証情報、トークンを文書・report・Release note に含めない。
 
 ## 6. 試行タスク（オンボーディング演習）
 
-1. `uv run pytest` と `uv run ruff check src tests` を実行し、3 test と lint が成功することを確認する。
-2. `uv run diffmatte-infer-onnx ... --noise-npy artifacts/reference_comparison/initial_noise.npy` を実行し、出力 PNG の SHA-256 が `f67a38...a953c` になることを確認する。
-3. ONNX Runtime で input/output metadata を列挙し、本書の固定 shape と一致することを確認する。
+1. **確認済み:** `uv sync --extra runtime-cpu --extra dev` の後、`uv run pytest` と `uv run ruff check src tests` を実行する。3 test と lint 成功を確認する。
+2. **確認済み（GTX 1070）:** `uv sync --extra runtime-gpu --extra notebook --extra dev` の後、`uv run --extra runtime-gpu --extra notebook jupyter nbconvert --to notebook --execute notebooks/onnxruntime_gpu_retriever_visualization.ipynb --output executed.ipynb --output-dir artifacts/notebooks --ExecutePreprocessor.timeout=600` を実行する。report の provider に `CUDAExecutionProvider`、生成された `retriever_gpu_alpha.png` と `retriever_gpu_visualization.png` を確認する。
+3. **確認済み（CPU 参照比較）:** `reports/retriever_cpu_comparison.json` の input hash、seed `0`、max `4.589557647705078e-06`、allclose `true` を確認し、異なる noise を比較していないことを確かめる。
 
 ## 7. 運用ルール・変更管理
 
-- **ドキュメント更新時の記載ルール:** `確認済み` / `未検証` / `推定` を区別し、実行日・コマンド・入力・出力・誤差を残す。
-- **TBDの扱い:** 不明点は `未確認` とし、次に確認するファイルまたはコマンドを併記する。
-- **レビュー/承認フロー:** 未確認。少なくとも test/lint と実モデル smoke test を変更者が提示する。
-- **その他の運用ルール:** ONNX を更新したら `.onnx.json`、comparison report、SHA-256 を同時更新する。
+- **ドキュメント更新時の記載ルール:** `確認済み` / `未検証` / `推定` を明示し、実行日、コマンド、モデル hash、入力、provider、結果を残す。
+- **TBDの扱い:** 不明点は `未確認` とし、次に確認するファイル、GPU、またはコマンドを併記する。
+- **レビュー/承認フロー:** 未確認。少なくとも test/lint、実モデル smoke test、Release asset hash、画像確認を変更者が提示する。
+- **その他の運用ルール:** ONNX を追加・更新したら、本体を Release に配置し、`.onnx.json`、README のモデル表、実画像 report、可視化、SHA-256 を同じ変更で更新する。Release だけ、または manifest だけでは完了にしない。
 
 ### 完了ゲート
 
-- [x] `models/diffmatte_vits_1024_ddim10_643x960.onnx` がローカルに存在（118.9 MB、SHA-256 `d69827...acd6`）。
-- [x] runtime test 3/3 と Ruff が成功。
-- [x] 公式デモ画像/trimap の pairing、shape、SHA-256 を確認。
-- [x] PyTorch vs ORT: max `4.589557647705078e-06`、mean `3.0285896457371564e-08`、allclose。
-- [x] runtime PNG と exporter 側 ORT PNG が画素単位・SHA-256 とも一致。
-- [ ] CUDA provider は未検証。
+- [x] CPU 元モデル `diffmatte_vits_1024_ddim10_643x960.onnx` の SHA-256 `d69827e...acd6` と固定 shape を確認。
+- [x] GTX 1070 互換モデル `diffmatte_vits_1024_ddim10_643x960_gtx1070.onnx` の SHA-256 `3eebe380...362b6` と IR v9 / opset 18 を確認。
+- [x] 公式 `demo/retriever_rgb.png` / `demo/retriever_trimap.png` を seed `0` で推論し、`CUDAExecutionProvider` を確認。
+- [x] GPU alpha と青背景合成を `docs/assets/retriever_gpu_visualization.png` として materialize し、目視確認（session 作成を含む実行時間 32.89 秒。性能ベンチマークではない）。
+- [x] GPU/CPU の出力 PNG 比較: 最大画素差 `1`、平均差 `3.240020736132711e-06`。
+- [x] CPU PyTorch vs ORT: max `4.589557647705078e-06`、mean `3.0285896457371564e-08`、allclose。
+- [ ] GTX 1070 以外の GPU、動的 shape、ONNX Runtime GPU 1.18 以降の互換性は未検証。
 
 ---
 
 ### 付録: 参考情報
 
-- **主要リポジトリ/ディレクトリ:** 現在地が runtime、`../DiffMatte` が exporter、`../diffmatte_sandbox/checkpoints` が学習済み重み保管元。
-- **代表的なコマンド:** `uv sync --extra dev`、`uv run pytest`、README の `diffmatte-infer-onnx` 例。
-- **依存ライブラリ:** Python 3.11、NumPy 1.26、Pillow、ONNX Runtime 1.28（lock を正とする）。
-- **連絡先/責任者:** 未確認。Git remote はまだ設定されていない。
+- **主要リポジトリ/ディレクトリ:** 現在地が runtime、`../DiffMatte` が exporter、`demo/` が公式 retriever 入力、`notebooks/` が GPU 可視化、`artifacts/` が再生成可能な非追跡出力。
+- **代表的なコマンド:** `just sync-cpu`、`just sync-gpu`、`just test`、`just lint`、`just notebook-gpu`、README の `diffmatte-infer-onnx` 例。
+- **依存ライブラリ:** Python 3.11、NumPy、Pillow、CPU は `onnxruntime`、GTX 1070 は `onnxruntime-gpu==1.16.3` と CUDA 11.8 / cuDNN 8。
+- **配布先:** [yuki-inaho/diffmatte_onnx Releases](https://github.com/yuki-inaho/diffmatte_onnx/releases)。
+- **連絡先/責任者:** GitHub owner は `yuki-inaho`。承認責任者は未確認。
 
+> 本書はモデル実体の代わりにはならない。Release asset、SHA-256 manifest、実行 report、可視化 PNG の四点をそろえて初めて再現可能な配布物として扱う。

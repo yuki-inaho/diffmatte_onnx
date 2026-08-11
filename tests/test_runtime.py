@@ -37,4 +37,3 @@ def test_seeded_noise_is_reproducible() -> None:
 def test_cuda_provider_requires_gpu_runtime() -> None:
     with pytest.raises(RuntimeError, match="CUDAExecutionProvider is unavailable"):
         choose_providers(FakeOrt, "cuda")
-

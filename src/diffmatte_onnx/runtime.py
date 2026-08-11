@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
+import site
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,40 @@ from PIL import Image
 
 INPUT_NAMES = ("image", "trimap", "initial_noise")
 OUTPUT_NAME = "alpha"
+
+
+def preload_cuda_dependencies() -> list[str]:
+    """Load pip-installed CUDA/cuDNN shared libraries before ORT loads its CUDA EP.
+
+    This is a no-op for the CPU runtime. The GPU extra pins CUDA 11.8/cuDNN 8,
+    the supported CUDA stack for the GTX 1070 (Pascal) notebook.
+    """
+    loaded: list[str] = []
+    library_dirs = (
+        Path(site.getsitepackages()[0]) / "nvidia" / "cuda_runtime" / "lib",
+        Path(site.getsitepackages()[0]) / "nvidia" / "cuda_nvrtc" / "lib",
+        Path(site.getsitepackages()[0]) / "nvidia" / "cublas" / "lib",
+        Path(site.getsitepackages()[0]) / "nvidia" / "cufft" / "lib",
+        Path(site.getsitepackages()[0]) / "nvidia" / "cudnn" / "lib",
+    )
+    library_names = (
+        "libcudart.so.11.0",
+        "libnvrtc.so.11.2",
+        "libcublasLt.so.11",
+        "libcublas.so.11",
+        "libcufft.so.10",
+        "libcudnn_ops_infer.so.8",
+        "libcudnn_cnn_infer.so.8",
+        "libcudnn.so.8",
+    )
+    for name in library_names:
+        for directory in library_dirs:
+            candidate = directory / name
+            if candidate.is_file():
+                ctypes.CDLL(str(candidate), mode=ctypes.RTLD_GLOBAL)
+                loaded.append(str(candidate))
+                break
+    return loaded
 
 
 def _parse_args() -> argparse.Namespace:
@@ -119,14 +155,31 @@ def run_inference(
     provider: str = "auto",
 ) -> tuple[np.ndarray, list[str]]:
     try:
+        if provider in {"auto", "cuda"}:
+            preload_cuda_dependencies()
         import onnxruntime as ort
     except ImportError as exc:  # pragma: no cover - dependency is declared
-        raise RuntimeError("Install the project with `uv sync`.") from exc
+        raise RuntimeError(
+            "Install an execution runtime with `uv sync --extra runtime-cpu` or "
+            "`uv sync --extra runtime-gpu`."
+        ) from exc
 
     if not model_path.is_file():
         raise FileNotFoundError(model_path)
     requested = choose_providers(ort, provider)
-    session = ort.InferenceSession(str(model_path), providers=requested)
+    session_options = ort.SessionOptions()
+    if provider == "cuda":
+        # ORT 1.16 is the CUDA 11.8/cuDNN 8 build that supports GTX 1070.
+        # Its FusedConv optimizer cannot consume this modern opset-18 graph,
+        # while the unfused CUDA kernels are compatible and numerically valid.
+        session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+    session = ort.InferenceSession(str(model_path), sess_options=session_options, providers=requested)
+    active_providers = session.get_providers()
+    if provider == "cuda" and "CUDAExecutionProvider" not in active_providers:
+        raise RuntimeError(
+            "CUDAExecutionProvider was requested but could not be initialized. "
+            f"Active providers: {active_providers}. Check the ONNX Runtime/CUDA/cuDNN version match."
+        )
     validate_model_contract(session, image)
     alpha = session.run(
         [OUTPUT_NAME],
@@ -134,7 +187,7 @@ def run_inference(
     )[0]
     if alpha.shape != trimap.shape:
         raise ValueError(f"Alpha shape must match trimap: {alpha.shape} vs {trimap.shape}")
-    return alpha, session.get_providers()
+    return alpha, active_providers
 
 
 def _save_alpha(path: Path, alpha: np.ndarray) -> None:
@@ -174,4 +227,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

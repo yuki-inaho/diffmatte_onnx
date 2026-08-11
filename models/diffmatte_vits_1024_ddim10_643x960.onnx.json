@@ -1,0 +1,15 @@
+{
+  "config": "ViTS_1024",
+  "checkpoint": "../diffmatte_sandbox/checkpoints/DiffMatte_ViTS_Com_1024.pth",
+  "onnx": "../diffmatte_onnx/models/diffmatte_vits_1024_ddim10_643x960.onnx",
+  "height": 643,
+  "width": 960,
+  "steps": 10,
+  "opset": 18,
+  "dynamic_batch": false,
+  "dynamic_spatial": false,
+  "verification": {
+    "max_abs_error": 1.52587890625e-05,
+    "mean_abs_error": 4.465637175599113e-07
+  }
+}

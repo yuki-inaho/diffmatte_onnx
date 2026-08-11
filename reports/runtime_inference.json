@@ -1,0 +1,10 @@
+{
+  "model": "models/diffmatte_vits_1024_ddim10_643x960.onnx",
+  "image": "demo/retriever_rgb.png",
+  "trimap": "demo/retriever_trimap.png",
+  "output": "artifacts/runtime_alpha.png",
+  "input_shape": [1, 3, 643, 960],
+  "noise_npy": "artifacts/reference_comparison/initial_noise.npy",
+  "providers": ["CPUExecutionProvider"],
+  "enforce_known_trimap": false
+}

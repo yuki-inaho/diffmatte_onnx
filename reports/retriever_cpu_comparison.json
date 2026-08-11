@@ -1,0 +1,18 @@
+{
+  "config": "ViTS_1024",
+  "checkpoint_sha256": "685fdd14fd07a26be1075b8a4c2b4175e448a298f9d92bb857f54e3fb8636029",
+  "onnx_sha256": "d69827e512803e1fd352e73aff55f327f766564d47de77908bac84d5bbc6acd6",
+  "image_sha256": "cbb6a257cf6b63ab992d82f266b2cd129aa13994988341bd0b7133071236bb9c",
+  "trimap_sha256": "6f9dcc280203641a8ce1e6a81ec661c4b6693217d6c95a9ec297c9fe5e2adbd6",
+  "input_shape": [1, 3, 643, 960],
+  "steps": 10,
+  "seed": 0,
+  "provider": ["CPUExecutionProvider"],
+  "max_abs_error": 4.589557647705078e-06,
+  "mean_abs_error": 3.0285896457371564e-08,
+  "atol": 0.001,
+  "rtol": 0.001,
+  "allclose": true,
+  "runtime_png_matches_validation_png": true,
+  "runtime_png_sha256": "f67a38b0f41b066ab8867c1c14643f4d3e55e500d79b85bc71e50327266a953c"
+}
